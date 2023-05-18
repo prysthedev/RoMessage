@@ -1,5 +1,6 @@
 const fs = require('fs');
-const axios = require('axios');
+const { resolve } = require('path');
+const request = require('request');
 require('dotenv').config();
 
 function removeLinesWithKeyword(filename, keyword) {
@@ -21,90 +22,102 @@ let messagesSent = 0;
 
 if (cookies.length < 2) {
   console.log('Not enough cookies! You need to have at least 2 verified cookies.');
-  process.exit(1);
-}
+};
+
+const getToken = async () => {
+  const url = `https://auth.roblox.com/v2/login`;
+  const options = {
+    url: url,
+    method: 'POST',
+    headers: {
+      "Content-Type": "application/json",
+      'cookie': `.ROBLOSECURITY=${cookies[currentCookieIndex].trim()}`
+    }
+  };
+
+  try {
+    const response = await new Promise((resolve, reject) => {
+      request(options, (error, response) => {
+        if (error) {
+          resolve(response);
+        } else {
+          resolve(response);
+        }
+      });
+    });
+    const token = response.headers['x-csrf-token'];
+    return token;
+  } catch (error) {
+    console.error('Error getting token:', error);
+    resolve();
+  }
+};
 
 function getNextProxy() {
   const proxy = proxies[proxyIndex];
   proxyIndex = (proxyIndex + 1) % proxies.length;
   return proxy;
-}
+};
 
 const sleepFunc = (ms) => {
-  return new Promise(resolve => setTimeout(resolve, ms));
-};
+  const end = new Date().getTime() + ms;
+  while (new Date().getTime() < end) { /* do nothing */ }
+}
 
 const makeRequests = async () => {
   const ids = fs.readFileSync(process.env.IDS, 'utf8').split('\n');
+  for (const id of ids) {
+    await makeRequest(id.trim());
+  }
+}
 
-  const requests = ids.map(id => makeRequest(id.trim()));
-  await Promise.all(requests);
-};
-
-console.log(`Remember that if you have cookies and they are not verified, the program will keep sending the messages but they won't actually be received!`);
+console.log(`Remember that if you have cookies and they are not verified, program will keep sending the messages but they won't be actually recieved!`);
 sleepFunc(3000);
 
 const makeRequest = async (id) => {
-  let thisIndex = currentCookieIndex;
-  let token = '';
-  const getToken = async () => {
-    const url = `https://auth.roblox.com/v2/login`;
-    const options = {
-      url: url,
-      method: 'POST',
-      headers: {
-        "Content-Type": "application/json",
-        'cookie': `.ROBLOSECURITY=${cookies[thisIndex].trim()}`
-      }
+      currentCookieIndex = (currentCookieIndex + 1) % cookies.length;
+      const url = `https://privatemessages.roblox.com/v1/messages/send`;
+      let proxy = getNextProxy();
+      const payload = {
+        subject: subject,
+        body: message,
+        recipientid: id,
+        cacheBuster: 1681481648561
+      };
+      const options = {
+        url: url,
+        method: 'POST',
+        json: payload,
+        proxy: `http://${proxy}`,
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          "x-csrf-token": await getToken(),
+          "Content-Type": "application/json",
+          'cookie': `.ROBLOSECURITY=${cookies[currentCookieIndex].trim()}`
+        }
+      };
+      console.log(`Making request for id ${id}`);
+      request(options, (error, response, body) => {
+        if (error) {
+          console.log(`Error making request for id ${id}:`, error);
+          removeLinesWithKeyword(process.env.IDS, id)
+        } else if (response.statusCode == 429) {
+          console.log('Oh no, ratelimit exceeded.');
+          removeLinesWithKeyword(process.env.IDS, id) 
+          sleepFunc(parseInt(process.env.RATE_LIMIT_WAIT));
+        } else if (response.statusCode == 200) {
+          removeLinesWithKeyword(process.env.IDS, id)
+          messagesSent++;
+          console.log(`Successfully sent message to id ${id}. Messages sent: ${messagesSent}. Response: ${response.statusMessage}`);
+        } else if (response.statusCode == 403) {
+          console.log('Token or auth problem, retrying...');
+          removeLinesWithKeyword(process.env.IDS, id)
+        } else {
+          console.log(`Unexpected response for id ${id}:`, response.statusCode, body);
+          removeLinesWithKeyword(process.env.IDS, id)
+        }
+      });
     };
-
-    try {
-      const response = await axios(options);
-      token = response.headers['x-csrf-token'];
-    } catch (error) {
-      console.error('Error getting token:', error);
-    }
-  };
-  await getToken();
-  const url = `https://privatemessages.roblox.com/v1/messages/send`;
-  let proxy = getNextProxy();
-  const payload = {
-    subject: subject,
-    body: message,
-    recipientid: id
-  };
-  const options = {
-    url: url,
-    method: 'POST',
-    data: payload,
-    proxy: `http://${proxy}`,
-    headers: {
-      'User-Agent': 'Mozilla/5.0',
-      "x-csrf-token": token,
-      "Content-Type": "application/json",
-      'cookie': `.ROBLOSECURITY=${cookies[thisIndex].trim()}`
-    }
-  };
-  console.log(`Making request for id ${id} with token ${token}`);
-  try {
-    const response = await axios(options);
-    if (response.status == 429) {
-      console.log('Oh no, ratelimit exceeded.');
-    } else if (response.status == 200) {
-      removeLinesWithKeyword(process.env.IDS, id);
-      messagesSent++;
-      console.log(`Successfully sent message to id ${id}. Messages sent: ${messagesSent}. Response: ${response.statusText}`);
-    } else if (response.status == 403) {
-      console.log('Token or auth problem, retrying...');
-    } else if (response.status == 500) {
-      removeLinesWithKeyword(process.env.IDS, id);
-    } else {
-      console.log(`Unexpected response for id ${id}:`, response.status, response.data);
-    }
-  } catch (error) {
-    console.log(`Error making request for id ${id}:`, error.message);
-  }
-};
 
 makeRequests()
   .then(() => {

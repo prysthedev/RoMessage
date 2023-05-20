@@ -5,3 +5,4 @@ proxies.txt
 package.json
 package-lock.json
 modifiedVersion.js
+.env

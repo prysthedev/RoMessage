@@ -1,0 +1,1 @@
+This program is one of my first JS projects I worked on while learning JS. It's probably extremely unstable, unoptimized and I don't mantain it anymore. It used to send a lot of message from mutiple roblox cookies in short amount of time.
